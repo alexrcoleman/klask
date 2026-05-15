@@ -148,6 +148,7 @@ const KlaskScene = forwardRef<KlaskSceneHandle, KlaskSceneProps>(function KlaskS
       const hit = new THREE.Vector3();
       let orbitPointerId: number | null = null;
       let lowerMagnetPointerId: number | null = null;
+      const activeTouchPointers = new Set<number>();
       let lastOrbitX = 0;
       let lastOrbitY = 0;
 
@@ -197,7 +198,19 @@ const KlaskScene = forwardRef<KlaskSceneHandle, KlaskSceneProps>(function KlaskS
         }
       };
 
+      if (window.matchMedia('(pointer: coarse)').matches) {
+        setPlayerMagnetLowered(true);
+      }
+
       const handlePointerDown = (event: PointerEvent) => {
+        if (event.pointerType === 'touch') {
+          activeTouchPointers.add(event.pointerId);
+          setPlayerMagnetLowered(false);
+          handleBoardPointer(event);
+          renderer.domElement.setPointerCapture(event.pointerId);
+          return;
+        }
+
         if (event.button === 1) {
           event.preventDefault();
           orbitPointerId = event.pointerId;
@@ -220,6 +233,11 @@ const KlaskScene = forwardRef<KlaskSceneHandle, KlaskSceneProps>(function KlaskS
       };
 
       const handlePointerMove = (event: PointerEvent) => {
+        if (event.pointerType === 'touch') {
+          handleBoardPointer(event);
+          return;
+        }
+
         if (orbitPointerId === event.pointerId) {
           event.preventDefault();
 
@@ -241,6 +259,18 @@ const KlaskScene = forwardRef<KlaskSceneHandle, KlaskSceneProps>(function KlaskS
       };
 
       const handlePointerUp = (event: PointerEvent) => {
+        if (event.pointerType === 'touch') {
+          activeTouchPointers.delete(event.pointerId);
+
+          if (activeTouchPointers.size === 0) {
+            setPlayerMagnetLowered(true);
+          }
+
+          if (renderer.domElement.hasPointerCapture(event.pointerId)) {
+            renderer.domElement.releasePointerCapture(event.pointerId);
+          }
+        }
+
         if (lowerMagnetPointerId === event.pointerId && (event.button === 2 || event.type === 'pointercancel')) {
           lowerMagnetPointerId = null;
           setPlayerMagnetLowered(false);
@@ -276,8 +306,9 @@ const KlaskScene = forwardRef<KlaskSceneHandle, KlaskSceneProps>(function KlaskS
       };
 
       const handleWindowBlur = () => {
+        activeTouchPointers.clear();
         lowerMagnetPointerId = null;
-        setPlayerMagnetLowered(false);
+        setPlayerMagnetLowered(window.matchMedia('(pointer: coarse)').matches);
       };
 
       const handleKey = (event: KeyboardEvent) => {
