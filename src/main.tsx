@@ -1,6 +1,7 @@
 import React from 'react';
 import { createRoot, hydrateRoot } from 'react-dom/client';
 import { RouterProvider } from 'react-router/dom';
+import { registerServiceWorker } from './registerServiceWorker';
 import { router } from './router';
 
 const root = document.getElementById('root');
@@ -20,3 +21,5 @@ if (root.querySelector('.appShell')) {
 } else {
   createRoot(root).render(app);
 }
+
+registerServiceWorker();

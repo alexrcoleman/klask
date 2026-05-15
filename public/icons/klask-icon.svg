@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Klask Lab">
+  <rect width="512" height="512" rx="112" fill="#2468c9"/>
+  <rect x="72" y="82" width="368" height="348" rx="26" fill="#2f74d6" stroke="#f2d29a" stroke-width="28"/>
+  <circle cx="136" cy="256" r="38" fill="#49d4f0" stroke="#f2d29a" stroke-width="12"/>
+  <circle cx="376" cy="256" r="38" fill="#49d4f0" stroke="#f2d29a" stroke-width="12"/>
+  <circle cx="256" cy="256" r="16" fill="#ffd335"/>
+  <g fill="#f7f2e8">
+    <circle cx="256" cy="184" r="13"/>
+    <circle cx="214" cy="316" r="13"/>
+    <circle cx="298" cy="316" r="13"/>
+  </g>
+  <path d="M188 250h136M188 250l44-58M188 250l44 58M324 250l-44-58M324 250l-44 58" fill="none" stroke="#f7f2e8" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
