@@ -39,8 +39,6 @@ export const PIECES = {
   strikerRadius: 0.08,
   strikerHeight: 0.57,
   steererRadius: 0.14,
-  disconnectDistance: 0.52,
-  reconnectDistance: 0.28,
 } as const;
 
 const CONTROLLER_MAGNET_HEIGHT = PIECES.strikerHeight * 0.95;
@@ -69,7 +67,7 @@ export const PHYSICS = {
 } as const;
 
 export const DEFAULT_SETTINGS: GameSettings = {
-  magneticCoupling: 72,
+  magneticCoupling: 150,
   strikerFriction: PHYSICS.strikerDrag,
   biscuitMagnetism: 1.15,
   aiSpeed: 0.92,

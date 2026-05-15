@@ -139,7 +139,7 @@ The AI controls under-board steerers, not strikers directly. It has two paths:
 - Pointer and physical serving.
 - Controller midline wall.
 - Magnetic controller coupling and jitter.
-- Striker friction after disconnect.
+- Striker friction when the controller magnet is lowered or weak.
 - Biscuit polarity, flipping, attachment, retention, and anti-orbit damping.
 - Ball-biscuit collisions with vertical separation.
 - Biscuit launch and no-contact stability.

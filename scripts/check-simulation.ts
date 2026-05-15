@@ -151,7 +151,7 @@ for (let frame = 0; frame < 28; frame += 1) {
 
 assert(
   highPullJumpState.strikers.player.coupledTo === 'player',
-  'High magnet pull still disconnected after a fast controller jump.',
+  'High magnet pull lost dominant control after a fast controller jump.',
 );
 assert(
   highPullJumpState.strikers.player.pos.x > 0.18,
@@ -188,8 +188,15 @@ assert(maxControllerLift < 0.01, 'Controller magnet lifted the striker off the b
 assert(maxControllerAcceleration < 650, 'Controller magnet produced unstable striker acceleration.');
 
 const strikerFrictionState = createInitialState();
-strikerFrictionState.strikers.player.coupledTo = null;
-strikerFrictionState.steerers.player = { x: 1.4, z: strikerFrictionState.strikers.player.pos.z };
+setPlayerSteererLowered(strikerFrictionState, true);
+for (let frame = 0; frame < 120; frame += 1) {
+  stepSimulation(strikerFrictionState, PHYSICS.fixedTimeStep, DEFAULT_SETTINGS);
+}
+strikerFrictionState.steerers.player = {
+  ...strikerFrictionState.steerers.player,
+  x: 1.4,
+  z: strikerFrictionState.strikers.player.pos.z,
+};
 strikerFrictionState.strikers.player.vel = { x: 3.5, z: 0 };
 const frictionStart = { ...strikerFrictionState.strikers.player.pos };
 
@@ -202,7 +209,7 @@ assert(
     strikerFrictionState.strikers.player.pos.x - frictionStart.x,
     strikerFrictionState.strikers.player.pos.z - frictionStart.z,
   ) < 0.5,
-  'Disconnected striker coasted too far after losing the controller magnet.',
+  'A striker coasted too far with the controller magnet lowered.',
 );
 
 const biscuitAttachmentState = createInitialState();
@@ -664,6 +671,22 @@ for (; directGoalFrame < 70 && !directGoalEvent; directGoalFrame += 1) {
 assert(directGoalEvent?.reason === 'Goal', 'A clean center-bound ball did not fall into the goal.');
 assert(directGoalFrame < 50, 'A clean center-bound ball took too long to fall into the goal.');
 assert(directGoalState.ball.sink > 0.92, 'Clean goal scored before the ball reached the bottom.');
+
+const fastCutoutGoalState = createInitialState();
+tryServeFromPointer(fastCutoutGoalState, fastCutoutGoalState.ball.pos.x, fastCutoutGoalState.ball.pos.z);
+fastCutoutGoalState.ball.pos = { x: 0.09, z: goalZFor('opponent') + 0.2 };
+fastCutoutGoalState.ball.vel = { x: 0, z: -5.2 };
+
+let fastCutoutEvent: ReturnType<typeof stepSimulation> = null;
+let fastCutoutTopRimBounce = false;
+for (let frame = 0; frame < 70 && !fastCutoutEvent; frame += 1) {
+  fastCutoutEvent = stepSimulation(fastCutoutGoalState, PHYSICS.fixedTimeStep, DEFAULT_SETTINGS);
+  fastCutoutTopRimBounce ||= fastCutoutGoalState.ball.sink < 0.08 && fastCutoutGoalState.ball.vel.z > 0.55;
+}
+
+assert(!fastCutoutTopRimBounce, 'A fast ball entering the goal cutout bounced backward off a fake top rim.');
+assert(fastCutoutEvent?.reason === 'Goal', 'A fast ball through the goal cutout did not score.');
+assert(fastCutoutGoalState.ball.sink > 0.92, 'Fast cutout goal scored before the ball reached the bottom.');
 
 const rimBounceState = createInitialState();
 tryServeFromPointer(rimBounceState, rimBounceState.ball.pos.x, rimBounceState.ball.pos.z);

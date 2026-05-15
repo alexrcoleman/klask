@@ -79,5 +79,5 @@ The HTML includes a prerendered React shell for the current route, then the brow
 
 - Tune the constants against real KLASK piece weights, video, and board measurements.
 - Replace narrow collision approximations with a robust 3D rigid body backend if the custom simulation stops scaling.
-- Add audio for goals, KLASK drops, biscuit attachment, and striker disconnects.
+- Add audio for goals, KLASK drops, biscuit attachment, and controller release moments.
 - Explore second-player input and low-latency networking after the physical feel is stable.
