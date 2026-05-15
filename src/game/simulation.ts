@@ -38,6 +38,7 @@ const GOAL_DEPTH = PIECES.ballRadius * 1.5;
 const MAGNETIC_SOFTENING = 0.22;
 const CONTROLLER_PLANAR_SPRING = 12.5;
 const CONTROLLER_PLANAR_DAMPING = 1.35;
+const CONTROLLER_PLANAR_REACH = 0.32;
 const STRIKER_TILT_MAX = 1.42;
 const STRIKER_FALLEN_TILT = 1.05;
 const STRIKER_UPRIGHT_STIFFNESS = 22;
@@ -50,9 +51,7 @@ const CONTROLLER_LOWERED_MIN_STRENGTH = 0.006;
 const BODY_MAX_AIR_HEIGHT = 0.42;
 const BODY_MAX_UPWARD_SPEED = 1.8;
 const BODY_MAX_DOWNWARD_SPEED = 2.8;
-const AI_SECOND_BISCUIT_DANGER_RADIUS = 0.58;
-const CONTROLLER_BASE_REACH = 0.42;
-const CONTROLLER_REACH_GAIN = 0.2;
+const AI_SECOND_BISCUIT_DANGER_RADIUS = 0.72;
 
 interface GoalWellOptions {
   captureRadius: number;
@@ -61,7 +60,6 @@ interface GoalWellOptions {
   minEntrySinkSpeed: number;
   pull: number;
   rimRadius: number;
-  rimRestitution: number;
   wallRadius: number;
   wallRestitution: number;
 }
@@ -289,15 +287,12 @@ function clampMagnitude3(value: Vector3, maxMagnitude: number): Vector3 {
   return scale3(value, maxMagnitude / magnitude);
 }
 
-function magneticReachScale(settings: GameSettings): number {
-  const ratio = Math.max(0.05, settings.magneticCoupling / DEFAULT_SETTINGS.magneticCoupling);
-  return clamp(Math.sqrt(ratio), 0.72, 2.1);
-}
-
-function controllerPlanarFalloff(distance: number, settings: GameSettings): number {
-  const reach = CONTROLLER_BASE_REACH + CONTROLLER_REACH_GAIN * magneticReachScale(settings);
+function controllerPlanarFalloff(distance: number): number {
+  const reach = CONTROLLER_PLANAR_REACH;
   const ratio = distance / reach;
-  return 1 / (1 + ratio * ratio * ratio * ratio);
+  const ratioSq = ratio * ratio;
+  const ratioFourth = ratioSq * ratioSq;
+  return 1 / (1 + ratioFourth * ratioFourth);
 }
 
 function controllerHalfFalloff(striker: Striker, controllerSide: Side): number {
@@ -1020,7 +1015,7 @@ function nudgeAiTargetAwayFromLooseBiscuits(
 ): Vector2 {
   const attached = attachedCount(state, side);
   const sideSign = side === 'player' ? 1 : -1;
-  const radius = attached > 0 ? 0.58 : 0.24;
+  const radius = attached > 0 ? 0.74 : 0.24;
   let adjusted = vec(target.x, target.z);
 
   for (const biscuit of state.biscuits) {
@@ -1036,7 +1031,7 @@ function nudgeAiTargetAwayFromLooseBiscuits(
       continue;
     }
 
-    const push = (radius - distance) * (attached > 0 ? 1.35 : 0.48);
+    const push = (radius - distance) * (attached > 0 ? 1.7 : 0.48);
     const nx = distance > 0.0001 ? dx / distance : Math.sign(adjusted.x || biscuit.pos.x || 1);
     const nz = distance > 0.0001 ? dz / distance : sideSign;
     adjusted = vec(adjusted.x + nx * push, adjusted.z + nz * push);
@@ -1064,6 +1059,9 @@ function updateAiSteerer(
   const safetyMaxZ = side === 'player' ? BOARD.length / 2 - 0.42 : centerSafetyZ;
   const attached = attachedCount(state, side);
   const shotTarget = shotSteererTarget(state, side, 0.28, 0.38);
+  const immediateSecondBiscuitThreat = attached > 0
+    ? nearestLooseBiscuitNear(state, striker.pos, 0.38)
+    : null;
   const secondBiscuitRisk = attached > 0 && (
     hasLooseBiscuitNear(state, ball.pos, AI_SECOND_BISCUIT_DANGER_RADIUS)
     || hasLooseBiscuitNear(state, shotTarget, AI_SECOND_BISCUIT_DANGER_RADIUS)
@@ -1076,7 +1074,16 @@ function updateAiSteerer(
   );
   let speed = 2.8;
 
-  if (secondBiscuitRisk && !stalledReachableBall) {
+  if (immediateSecondBiscuitThreat) {
+    const awayX = striker.pos.x - immediateSecondBiscuitThreat.pos.x;
+    const awayZ = striker.pos.z - immediateSecondBiscuitThreat.pos.z;
+    const awayDistance = length(awayX, awayZ) || 1;
+    target = vec(
+      striker.pos.x + (awayX / awayDistance) * 0.82,
+      striker.pos.z + (awayZ / awayDistance) * 0.82,
+    );
+    speed = 7.2;
+  } else if (secondBiscuitRisk && !stalledReachableBall) {
     target = aiDefensiveTarget(state, side);
     speed = 5.4;
   } else if (canReachBall) {
@@ -1094,8 +1101,8 @@ function updateAiSteerer(
           (ball.pos.x - threat.pos.x) * lateral.x
           + (ball.pos.z - threat.pos.z) * lateral.z,
         ) || Math.sign(ball.pos.x || sideSign);
-        target.x += lateral.x * sideAwayFromBiscuit * 0.62;
-        target.z += lateral.z * sideAwayFromBiscuit * 0.62;
+        target.x += lateral.x * sideAwayFromBiscuit * 0.86;
+        target.z += lateral.z * sideAwayFromBiscuit * 0.86;
         speed = 6.8;
       }
     }
@@ -1208,7 +1215,7 @@ function controllerMagneticEffect(
   const controllerScale = steererStrengthScale(steerer) * controllerHalfFalloff(striker, controllerSide);
   const springScale = strikerUprightness(striker)
     * controllerScale
-    * controllerPlanarFalloff(distance, settings);
+    * controllerPlanarFalloff(distance);
   const source = strikerCharges(striker);
   const target = steererCharges(steerer);
   const magneticForce = dipoleForce(
@@ -1280,6 +1287,11 @@ function applyBiscuitMagnetism(
       ? BISCUIT_ATTACHED_MAGNET_STRENGTH
       : BISCUIT_FREE_MAGNET_STRENGTH;
     const dampingScale = attachedToThisStriker ? 2.8 : 1;
+    const strikerReactionScale = attachedToThisStriker ? 0.35 : 1;
+    const strikerTorqueScale = attachedToThisStriker ? 0.012 : 0.08;
+    const contactPullScale = attachedToThisStriker
+      ? clamp(gap / 0.022, 0, 1)
+      : 1;
     const biscuitOrigin = vec3(biscuit.pos.x, biscuitCenterY(biscuit), biscuit.pos.z);
     const strikerOrigin = vec3(striker.pos.x, strikerBaseY(striker), striker.pos.z);
     const interaction = dipoleInteraction(
@@ -1300,15 +1312,19 @@ function applyBiscuitMagnetism(
       ? -relativeTangent * settings.biscuitMagnetism * BISCUIT_ATTACHED_TANGENTIAL_DAMPING * falloff
       : 0;
     const force = vec3(
-      interaction.forceOnSource.x + nx * dampingForce + tx * tangentFriction,
+      interaction.forceOnSource.x * contactPullScale + nx * dampingForce + tx * tangentFriction,
       interaction.forceOnSource.y * 0.42,
-      interaction.forceOnSource.z + nz * dampingForce + tz * tangentFriction,
+      interaction.forceOnSource.z * contactPullScale + nz * dampingForce + tz * tangentFriction,
     );
     addScaledVelocity(biscuit, vec(force.x, force.z), 1 / biscuit.mass, dt);
     biscuit.liftVel += force.y * (1 / biscuit.mass) * dt;
     addScaledVelocity(
       striker,
-      vec3(-force.x, Math.min(0, -interaction.forceOnSource.y) * 0.08, -force.z),
+      vec3(
+        -force.x * strikerReactionScale,
+        Math.min(0, -interaction.forceOnSource.y) * 0.08 * strikerReactionScale,
+        -force.z * strikerReactionScale,
+      ),
       1 / striker.mass,
       dt,
     );
@@ -1316,8 +1332,8 @@ function applyBiscuitMagnetism(
     biscuit.tiltVelZ += interaction.torqueOnSource.z * dt * 0.82;
     biscuit.tiltVelX += force.z * dt * BISCUIT_MAGNET_ROLL_TORQUE;
     biscuit.tiltVelZ -= force.x * dt * BISCUIT_MAGNET_ROLL_TORQUE;
-    striker.tiltVelX += interaction.torqueOnTarget.x * dt * 0.08;
-    striker.tiltVelZ += interaction.torqueOnTarget.z * dt * 0.08;
+    striker.tiltVelX += interaction.torqueOnTarget.x * dt * strikerTorqueScale;
+    striker.tiltVelZ += interaction.torqueOnTarget.z * dt * strikerTorqueScale;
   }
 }
 
@@ -1414,7 +1430,7 @@ function applyStrikerImpactTilt(striker: Striker, normalX: number, normalZ: numb
 }
 
 function kickBallVertical(ball: Body, impactSpeed: number, rampStrength: number): void {
-  if (impactSpeed < 1.05 || rampStrength <= 0 || ball.y > PIECES.ballRadius * 1.25) {
+  if (impactSpeed < 1.05 || rampStrength <= 0 || ball.y > 0.003 || Math.abs(ball.yVel) > 0.08) {
     return;
   }
 
@@ -1572,8 +1588,12 @@ function resolvePieceCollisions(state: GameState): void {
     );
 
     if (impact > 0) {
-      applyStrikerImpactTilt(striker, dx / distance, dz / distance, impactSpeed, 0.8);
-      kickBallVertical(state.ball, impactSpeed, strikerTiltAmount(striker) * 0.16);
+      const wallContacts = fieldWallContactCount(state.ball);
+      const railPinchScale = wallContacts > 1
+        ? 0.02
+        : wallContacts > 0 ? 0.12 : 1;
+      applyStrikerImpactTilt(striker, dx / distance, dz / distance, impactSpeed, 0.8 * railPinchScale);
+      kickBallVertical(state.ball, impactSpeed, strikerTiltAmount(striker) * 0.16 * railPinchScale);
     }
   }
 
@@ -1752,28 +1772,55 @@ function resolveCircleCollision(
   return Math.abs(impulseMagnitude);
 }
 
+function fieldWallContactCount(body: Body, radius = body.radius): number {
+  const xLimit = BOARD.width / 2 - radius;
+  const zLimit = BOARD.length / 2 - radius;
+  let contacts = 0;
+
+  if (body.pos.x <= -xLimit + 0.002 || body.pos.x >= xLimit - 0.002) {
+    contacts += 1;
+  }
+
+  if (body.pos.z <= -zLimit + 0.002 || body.pos.z >= zLimit - 0.002) {
+    contacts += 1;
+  }
+
+  return contacts;
+}
+
 function keepInsideField(body: Body, restitution: number, radius = body.radius): void {
   const xLimit = BOARD.width / 2 - radius;
   const zLimit = BOARD.length / 2 - radius;
+  let wallHits = 0;
 
   if (body.pos.x < -xLimit) {
     body.pos.x = -xLimit;
     body.vel.x = Math.abs(body.vel.x) * restitution;
+    wallHits += 1;
   }
 
   if (body.pos.x > xLimit) {
     body.pos.x = xLimit;
     body.vel.x = -Math.abs(body.vel.x) * restitution;
+    wallHits += 1;
   }
 
   if (body.pos.z < -zLimit) {
     body.pos.z = -zLimit;
     body.vel.z = Math.abs(body.vel.z) * restitution;
+    wallHits += 1;
   }
 
   if (body.pos.z > zLimit) {
     body.pos.z = zLimit;
     body.vel.z = -Math.abs(body.vel.z) * restitution;
+    wallHits += 1;
+  }
+
+  if (wallHits > 0 && body.y < 0.06) {
+    body.yVel *= wallHits > 1 ? 0.42 : 0.7;
+    body.vel.x *= wallHits > 1 ? 0.86 : 0.94;
+    body.vel.z *= wallHits > 1 ? 0.86 : 0.94;
   }
 }
 
@@ -1818,13 +1865,12 @@ function attachedCount(state: GameState, side: Side): number {
 
 function updateGoalWells(state: GameState, dt: number): void {
   updateGoalWellBody(state.ball, dt, {
-    captureRadius: BOARD.goalRadius - state.ball.radius * 0.1,
+    captureRadius: BOARD.goalRadius + state.ball.radius * 0.15,
     gravity: 28,
     horizontalDrag: 0.72,
     minEntrySinkSpeed: 2.7,
     pull: 16,
     rimRadius: BOARD.goalRadius + state.ball.radius * 0.7,
-    rimRestitution: 0.72,
     wallRadius: BOARD.goalRadius - state.ball.radius * 0.58,
     wallRestitution: 0.5,
   });
@@ -1838,7 +1884,6 @@ function updateGoalWells(state: GameState, dt: number): void {
       minEntrySinkSpeed: 1.65,
       pull: 12,
       rimRadius: BOARD.goalRadius + striker.radius * 0.42,
-      rimRestitution: 0.36,
       wallRadius: BOARD.goalRadius - striker.radius * 0.52,
       wallRestitution: 0.28,
     });
@@ -1885,16 +1930,6 @@ function updateGoalWellBody(body: Body, dt: number, options: GoalWellOptions): v
   const isFallingInCup = body.sink > 0.015;
 
   if (!isOverCup && !isFallingInCup) {
-    if (bestDistance < options.rimRadius && radialVelocity < 0) {
-      const push = options.rimRadius - bestDistance;
-      body.pos.x += nx * push;
-      body.pos.z += nz * push;
-
-      const bounce = -(1 + options.rimRestitution) * radialVelocity;
-      body.vel.x += nx * bounce;
-      body.vel.z += nz * bounce;
-    }
-
     body.sink = Math.max(0, body.sink - dt * 8);
     body.sinkVel = 0;
     return;

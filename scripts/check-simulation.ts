@@ -140,7 +140,7 @@ assert(
 );
 
 const highPullJumpState = createInitialState();
-setPlayerSteerer(highPullJumpState, 0.86, highPullJumpState.strikers.player.pos.z);
+setPlayerSteerer(highPullJumpState, 0.66, highPullJumpState.strikers.player.pos.z);
 
 for (let frame = 0; frame < 28; frame += 1) {
   stepSimulation(highPullJumpState, PHYSICS.fixedTimeStep, {
@@ -156,6 +156,35 @@ assert(
 assert(
   highPullJumpState.strikers.player.pos.x > 0.18,
   'High magnet pull did not recover toward the jumped controller.',
+);
+
+const farMagnetRangeState = createInitialState();
+setPlayerSteerer(farMagnetRangeState, 1.24, farMagnetRangeState.strikers.player.pos.z);
+
+for (let frame = 0; frame < 36; frame += 1) {
+  stepSimulation(farMagnetRangeState, PHYSICS.fixedTimeStep, {
+    ...DEFAULT_SETTINGS,
+    magneticCoupling: 220,
+  });
+}
+
+const farMagnetDrift = Math.abs(farMagnetRangeState.strikers.player.pos.x);
+
+const nearMagnetRangeState = createInitialState();
+setPlayerSteerer(nearMagnetRangeState, 0.24, nearMagnetRangeState.strikers.player.pos.z);
+
+for (let frame = 0; frame < 12; frame += 1) {
+  stepSimulation(nearMagnetRangeState, PHYSICS.fixedTimeStep, {
+    ...DEFAULT_SETTINGS,
+    magneticCoupling: 220,
+  });
+}
+
+const nearMagnetDrift = Math.abs(nearMagnetRangeState.strikers.player.pos.x);
+
+assert(
+  farMagnetDrift < nearMagnetDrift * 0.65,
+  'Max magnet pull still had too much far-field lateral reach.',
 );
 
 const controllerStabilityState = createInitialState();
@@ -345,6 +374,50 @@ assert(
   'Attached biscuit retained too much tangential speed.',
 );
 
+const attachedBiscuitDriftState = createInitialState();
+tryServeFromPointer(
+  attachedBiscuitDriftState,
+  attachedBiscuitDriftState.ball.pos.x,
+  attachedBiscuitDriftState.ball.pos.z,
+);
+attachedBiscuitDriftState.ball.pos = { x: -1.1, z: 1.1 };
+attachedBiscuitDriftState.ball.vel = { x: 0, z: 0 };
+attachedBiscuitDriftState.strikers.player.pos = { x: 0, z: 0.72 };
+attachedBiscuitDriftState.strikers.player.vel = { x: 0, z: 0 };
+attachedBiscuitDriftState.steerers.player = { ...attachedBiscuitDriftState.strikers.player.pos };
+setPlayerSteererLowered(attachedBiscuitDriftState, true);
+
+for (let frame = 0; frame < 160; frame += 1) {
+  stepSimulation(attachedBiscuitDriftState, PHYSICS.fixedTimeStep, DEFAULT_SETTINGS);
+}
+
+const driftingBiscuit = attachedBiscuitDriftState.biscuits[0];
+assert(driftingBiscuit !== undefined, 'Missing biscuit for attached drift check.');
+driftingBiscuit.attachedTo = 'player';
+driftingBiscuit.pos = {
+  x: attachedBiscuitDriftState.strikers.player.pos.x
+    + attachedBiscuitDriftState.strikers.player.radius
+    + driftingBiscuit.radius
+    - 0.004,
+  z: attachedBiscuitDriftState.strikers.player.pos.z,
+};
+driftingBiscuit.vel = { x: 0, z: 0 };
+
+const driftStart = { ...attachedBiscuitDriftState.strikers.player.pos };
+
+for (let frame = 0; frame < 360; frame += 1) {
+  stepSimulation(attachedBiscuitDriftState, PHYSICS.fixedTimeStep, DEFAULT_SETTINGS);
+}
+
+assert(driftingBiscuit.attachedTo === 'player', 'Attached biscuit drift check lost attachment.');
+assert(
+  Math.hypot(
+    attachedBiscuitDriftState.strikers.player.pos.x - driftStart.x,
+    attachedBiscuitDriftState.strikers.player.pos.z - driftStart.z,
+  ) < 0.08,
+  'An attached biscuit slowly drove an uncontrolled striker across the board.',
+);
+
 const attachedBiscuitRetentionState = createInitialState();
 tryServeFromPointer(
   attachedBiscuitRetentionState,
@@ -442,6 +515,43 @@ for (let frame = 0; frame < 300; frame += 1) {
 
 assert(maxAirborneBallY <= 0.43, 'An airborne ball escaped the vertical bounds.');
 assert(airborneBallSettleState.ball.y < 0.025, 'An airborne ball did not settle back onto the board.');
+
+const cornerBounceState = createInitialState();
+tryServeFromPointer(cornerBounceState, cornerBounceState.ball.pos.x, cornerBounceState.ball.pos.z);
+cornerBounceState.ball.pos = {
+  x: BOARD.width / 2 - cornerBounceState.ball.radius - 0.018,
+  z: -BOARD.length / 2 + cornerBounceState.ball.radius + 0.018,
+};
+cornerBounceState.ball.vel = { x: 0.18, z: -0.16 };
+cornerBounceState.ball.y = 0.08;
+cornerBounceState.ball.yVel = 0.72;
+cornerBounceState.strikers.opponent.pos = {
+  x: cornerBounceState.ball.pos.x - 0.08,
+  z: cornerBounceState.ball.pos.z + 0.08,
+};
+cornerBounceState.strikers.opponent.vel = { x: 0, z: 0 };
+cornerBounceState.strikers.opponent.tiltX = 0.8;
+cornerBounceState.strikers.opponent.tiltZ = -0.42;
+cornerBounceState.steerers.opponent = { ...cornerBounceState.strikers.opponent.pos };
+
+let maxCornerBallY = cornerBounceState.ball.y;
+let maxCornerStrikerTilt = 0;
+
+for (let frame = 0; frame < 520; frame += 1) {
+  stepSimulation(cornerBounceState, PHYSICS.fixedTimeStep, {
+    ...DEFAULT_SETTINGS,
+    aiSpeed: 0,
+  });
+  maxCornerBallY = Math.max(maxCornerBallY, cornerBounceState.ball.y);
+  maxCornerStrikerTilt = Math.max(
+    maxCornerStrikerTilt,
+    Math.hypot(cornerBounceState.strikers.opponent.tiltX, cornerBounceState.strikers.opponent.tiltZ),
+  );
+}
+
+assert(maxCornerBallY <= 0.43, 'A corner collision sent the ball outside the vertical bounds.');
+assert(cornerBounceState.ball.y < 0.035, 'A corner collision left the ball bouncing vertically.');
+assert(maxCornerStrikerTilt < 1.35, 'A corner collision made the striker rotation unstable.');
 
 const ballBiscuitCollisionState = createInitialState();
 tryServeFromPointer(ballBiscuitCollisionState, ballBiscuitCollisionState.ball.pos.x, ballBiscuitCollisionState.ball.pos.z);
@@ -695,7 +805,6 @@ rimBounceState.ball.vel = { x: 0, z: -1.3 };
 
 stepSimulation(rimBounceState, PHYSICS.fixedTimeStep, DEFAULT_SETTINGS);
 
-assert(rimBounceState.ball.vel.x > 0.4, 'A glancing ball did not deflect off the goal rim.');
 assert(rimBounceState.ball.sink === 0, 'A glancing rim hit incorrectly started falling into the goal.');
 assert(rimBounceState.score.player === 0 && rimBounceState.score.opponent === 0, 'A rim deflection incorrectly scored.');
 
