@@ -1,6 +1,6 @@
 # Klask Lab
 
-A TypeScript, React, Vite, and Three.js recreation of KLASK in the browser. The current build is a single-page, simulation-first prototype with a mouse-driven under-board controller magnet, magnetic striker coupling, an AI opponent, biscuits, goal wells, scoring overlays, and a renderer that keeps React separate from the high-frequency simulation loop.
+A TypeScript, React Router, Vite, and Three.js recreation of KLASK in the browser. The current build is a single-route, simulation-first prototype with a mouse-driven under-board controller magnet, magnetic striker coupling, an AI opponent, biscuits, goal wells, scoring overlays, and a renderer that keeps React separate from the high-frequency simulation loop.
 
 ## Setup
 
@@ -33,17 +33,19 @@ npm run build
 
 ## GitHub Pages
 
-The public GitHub Pages build is a static single-page app hosted at `/klask/`.
+The public GitHub Pages build is a static app hosted at `/klask/`.
 
 ```sh
 npm run build:pages
 ```
 
-The `build:pages` script compiles with Vite's base path set to `/klask/`, so bundled assets resolve correctly from `https://alexrcoleman.github.io/klask/`. The `.github/workflows/pages.yml` workflow runs that script and publishes `dist` when `main` is pushed.
+The `build:pages` script compiles with Vite's base path set to `/klask/`, so bundled assets resolve correctly from `https://alexrcoleman.github.io/klask/` or the custom-domain equivalent. It also copies `dist/index.html` to `dist/404.html`, which lets GitHub Pages serve the React app for future deep links like `/klask/rules`.
+
+React Router is configured with `import.meta.env.BASE_URL` as its basename. Local dev uses `/`; the Pages build uses `/klask`.
 
 ## Project Shape
 
-- `src/main.tsx` renders the single-page app entry.
+- `src/router.tsx` defines the React Router route tree and Pages-aware basename.
 - `src/routes/GameRoute.tsx` owns HUD state, settings sliders, camera controls, and score overlays.
 - `src/components/KlaskScene.tsx` owns the imperative Three.js scene, pointer projection, cameras, visual meshes, and the fixed-timestep animation loop.
 - `src/game/constants.ts` keeps board dimensions, piece sizes, default settings, and shared magnetic geometry.

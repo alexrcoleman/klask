@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "build:pages": "tsc -b && vite build --base=/klask/",
+    "build:pages": "tsc -b && vite build --base=/klask/ && node scripts/copy-pages-404.mjs",
     "preview": "vite preview",
     "check:sim": "tsx scripts/check-simulation.ts",
     "check:types": "tsc -b",
@@ -16,6 +16,7 @@
     "ammojs-typed": "^1.0.6",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
+    "react-router": "^7.8.2",
     "three": "^0.176.0"
   },
   "devDependencies": {

@@ -2,22 +2,25 @@
 
 Klask Lab is split into three layers:
 
-- React page/HUD state in `src/routes`.
+- React route/HUD state in `src/routes`.
 - Imperative Three.js rendering and input projection in `src/components/KlaskScene.tsx`.
 - A dependency-free deterministic simulation in `src/game/simulation.ts`.
 
-The current app is a static single-page Vite build for easy GitHub Pages hosting. It intentionally avoids putting the simulation in React state. React receives periodic snapshots for the HUD while the scene loop owns high-frequency stepping and mesh synchronization.
+The current app is a static Vite build for easy GitHub Pages hosting. React Router stays in place for future pages, with `import.meta.env.BASE_URL` as the router basename so local dev uses `/` and GitHub Pages uses `/klask`. The app intentionally avoids putting the simulation in React state. React receives periodic snapshots for the HUD while the scene loop owns high-frequency stepping and mesh synchronization.
 
 ## Runtime Flow
 
-1. `src/main.tsx` renders `GameRoute` directly as the single static page.
-2. `GameRoute` renders the HUD and `KlaskScene`.
-3. `KlaskScene` creates a `GameState` with `createInitialState()`.
-4. Pointer input is projected from screen space onto the board plane.
-5. The projected pointer updates the player under-board controller magnet through `setPlayerSteerer()`.
-6. The animation loop advances `stepSimulation()` at `PHYSICS.fixedTimeStep` using an accumulator.
-7. `syncMeshes()` copies simulation state onto Three.js meshes.
-8. `getSnapshot()` is sent back to React roughly every 120 ms for score, status, and overlay UI.
+1. `src/main.tsx` renders the React Router provider.
+2. `src/router.tsx` defines the current index route and applies the Vite base path as the router basename.
+3. `GameRoute` renders the HUD and `KlaskScene`.
+4. `KlaskScene` creates a `GameState` with `createInitialState()`.
+5. Pointer input is projected from screen space onto the board plane.
+6. The projected pointer updates the player under-board controller magnet through `setPlayerSteerer()`.
+7. The animation loop advances `stepSimulation()` at `PHYSICS.fixedTimeStep` using an accumulator.
+8. `syncMeshes()` copies simulation state onto Three.js meshes.
+9. `getSnapshot()` is sent back to React roughly every 120 ms for score, status, and overlay UI.
+
+For GitHub Pages, `npm run build:pages` uses Vite's `/klask/` base and copies `dist/index.html` to `dist/404.html`. The 404 fallback lets direct navigation to future client routes load the app instead of showing GitHub's default 404 page.
 
 This gives the renderer smooth motion without forcing React to re-render on every physics tick.
 
