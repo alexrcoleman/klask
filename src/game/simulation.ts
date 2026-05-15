@@ -47,6 +47,11 @@ const STRIKER_FALLEN_DAMPING = 1.7;
 const BODY_VERTICAL_GRAVITY = 5.6;
 const BALL_VERTICAL_RESTITUTION = 0.34;
 const CONTROLLER_LOWERED_MIN_STRENGTH = 0.08;
+const BODY_MAX_AIR_HEIGHT = 0.42;
+const BODY_MAX_UPWARD_SPEED = 1.8;
+const BODY_MAX_DOWNWARD_SPEED = 2.8;
+const COUPLING_STRAIN_LIMIT = 0.22;
+const AI_SECOND_BISCUIT_DANGER_RADIUS = 0.58;
 
 interface GoalWellOptions {
   captureRadius: number;
@@ -105,6 +110,7 @@ export interface Steerer extends Vector2 {
 export interface Striker extends Body {
   side: Side;
   coupledTo: Side | null;
+  couplingStrain: number;
   lostTime: number;
   tiltX: number;
   tiltZ: number;
@@ -276,6 +282,11 @@ function clampMagnitude3(value: Vector3, maxMagnitude: number): Vector3 {
   return scale3(value, maxMagnitude / magnitude);
 }
 
+function magneticReachScale(settings: GameSettings): number {
+  const ratio = Math.max(0.05, settings.magneticCoupling / DEFAULT_SETTINGS.magneticCoupling);
+  return clamp(Math.sqrt(ratio), 0.72, 2.1);
+}
+
 function dampVelocity(body: Body, drag: number, dt: number): void {
   const damping = Math.exp(-drag * dt);
   body.vel.x *= damping;
@@ -298,10 +309,20 @@ function integrate(body: Body, dt: number): void {
   body.y += body.yVel * dt;
 }
 
+function constrainBodyVerticalMotion(body: Body): void {
+  body.yVel = clamp(body.yVel, -BODY_MAX_DOWNWARD_SPEED, BODY_MAX_UPWARD_SPEED);
+
+  if (body.y > BODY_MAX_AIR_HEIGHT) {
+    body.y = BODY_MAX_AIR_HEIGHT;
+    body.yVel = Math.min(0, body.yVel);
+  }
+}
+
 function advanceBodyOnBoard(body: Body, dt: number, drag: number, restitution: number): void {
   dampVelocity(body, drag, dt);
   applyBodyGravity(body, dt);
   integrate(body, dt);
+  constrainBodyVerticalMotion(body);
   settleBodyOnBoard(body, restitution);
 }
 
@@ -345,6 +366,7 @@ function makeStriker(side: Side): Striker {
     ...makeBody(0, z, PIECES.strikerRadius, PHYSICS.strikerMass),
     side,
     coupledTo: side,
+    couplingStrain: 0,
     lostTime: 0,
     tiltX: 0,
     tiltZ: 0,
@@ -742,7 +764,7 @@ export function stepSimulation(
     }
 
     for (const side of SIDES) {
-      updateStrikerCoupling(state, side);
+      updateStrikerCoupling(state, side, settings, dt);
       applyMagneticCoupling(state, side, settings, dt);
       state.strikers[side].lostTime = 0;
       advanceStrikerBody(state.strikers[side], dt, BALL_VERTICAL_RESTITUTION, settings.strikerFriction);
@@ -782,7 +804,7 @@ function advanceActiveRoundPhysics(
   }
 
   for (const side of SIDES) {
-    updateStrikerCoupling(state, side);
+    updateStrikerCoupling(state, side, settings, dt);
     applyMagneticCoupling(state, side, settings, dt);
   }
 
@@ -921,6 +943,73 @@ function shotSteererTarget(
   );
 }
 
+function isLooseGroundedBiscuit(biscuit: Biscuit): boolean {
+  return biscuit.attachedTo === null && !isBiscuitAirborne(biscuit);
+}
+
+function hasLooseBiscuitNear(state: GameState, point: Vector2, radius: number): boolean {
+  return state.biscuits.some((biscuit) => (
+    isLooseGroundedBiscuit(biscuit)
+    && length(biscuit.pos.x - point.x, biscuit.pos.z - point.z) < radius
+  ));
+}
+
+function aiDefensiveTarget(state: GameState, side: Side): Vector2 {
+  const sideSign = side === 'player' ? 1 : -1;
+  const ownGoalZ = sideSign * 1.36;
+  const nearestBiscuit = state.biscuits
+    .filter(isLooseGroundedBiscuit)
+    .reduce<Biscuit | null>((nearest, biscuit) => {
+      if (!nearest) {
+        return biscuit;
+      }
+
+      const currentDistance = length(state.ball.pos.x - biscuit.pos.x, state.ball.pos.z - biscuit.pos.z);
+      const nearestDistance = length(state.ball.pos.x - nearest.pos.x, state.ball.pos.z - nearest.pos.z);
+      return currentDistance < nearestDistance ? biscuit : nearest;
+    }, null);
+  const avoidX = nearestBiscuit && Math.abs(nearestBiscuit.pos.x) < 0.48
+    ? -Math.sign(nearestBiscuit.pos.x || state.ball.pos.x || 1) * 0.34
+    : state.ball.pos.x * 0.34;
+
+  return vec(
+    clamp(avoidX, -BOARD.width / 2 + 0.38, BOARD.width / 2 - 0.38),
+    ownGoalZ,
+  );
+}
+
+function nudgeAiTargetAwayFromLooseBiscuits(
+  state: GameState,
+  side: Side,
+  target: Vector2,
+): Vector2 {
+  const attached = attachedCount(state, side);
+  const sideSign = side === 'player' ? 1 : -1;
+  const radius = attached > 0 ? 0.36 : 0.24;
+  let adjusted = vec(target.x, target.z);
+
+  for (const biscuit of state.biscuits) {
+    if (!isLooseGroundedBiscuit(biscuit)) {
+      continue;
+    }
+
+    const dx = adjusted.x - biscuit.pos.x;
+    const dz = adjusted.z - biscuit.pos.z;
+    const distance = length(dx, dz);
+
+    if (distance >= radius) {
+      continue;
+    }
+
+    const push = (radius - distance) * (attached > 0 ? 0.95 : 0.48);
+    const nx = distance > 0.0001 ? dx / distance : Math.sign(adjusted.x || biscuit.pos.x || 1);
+    const nz = distance > 0.0001 ? dz / distance : sideSign;
+    adjusted = vec(adjusted.x + nx * push, adjusted.z + nz * push);
+  }
+
+  return clampSteerer(side, adjusted.x, adjusted.z, state.steerers[side]);
+}
+
 function updateAiSteerer(
   state: GameState,
   settings: GameSettings,
@@ -933,22 +1022,35 @@ function updateAiSteerer(
   const defensiveZ = sideSign * 1.08;
   const centerSafetyZ = sideSign * 0.74;
   const ball = state.ball;
+  const striker = state.strikers[side];
   const canReachBall = sideSign * ball.pos.z > -BOARD.halfReach + 0.08;
   const safetyMinZ = side === 'player' ? centerSafetyZ : -BOARD.length / 2 + 0.42;
   const safetyMaxZ = side === 'player' ? BOARD.length / 2 - 0.42 : centerSafetyZ;
+  const attached = attachedCount(state, side);
+  const shotTarget = shotSteererTarget(state, side, 0.28, 0.38);
+  const secondBiscuitRisk = attached > 0 && (
+    hasLooseBiscuitNear(state, ball.pos, AI_SECOND_BISCUIT_DANGER_RADIUS)
+    || hasLooseBiscuitNear(state, shotTarget, AI_SECOND_BISCUIT_DANGER_RADIUS)
+    || hasLooseBiscuitNear(state, striker.pos, 0.28)
+  );
   let target = vec(
     clamp(ball.pos.x * 0.82, -BOARD.width / 2 + 0.32, BOARD.width / 2 - 0.32),
     clamp(ball.pos.z + sideSign * 0.2, safetyMinZ, safetyMaxZ),
   );
   let speed = 2.8;
 
-  if (canReachBall) {
-    target = shotSteererTarget(state, side, 0.28, 0.38);
+  if (secondBiscuitRisk) {
+    target = aiDefensiveTarget(state, side);
+    speed = 5.4;
+  } else if (canReachBall) {
+    target = shotTarget;
     speed = 4.2;
   } else if (sideSign * ball.pos.z < -0.22) {
     target.x *= 0.42;
     target.z = defensiveZ;
   }
+
+  target = nudgeAiTargetAwayFromLooseBiscuits(state, side, target);
 
   moveSteererToward(
     state,
@@ -1051,8 +1153,8 @@ function applyMagneticCoupling(
   );
 
   addScaledVelocity(striker, force, 1 / striker.mass, dt);
-  striker.tiltVelX += torque.x * dt * 0.2;
-  striker.tiltVelZ += torque.z * dt * 0.2;
+  striker.tiltVelX += torque.x * dt * 0.08;
+  striker.tiltVelZ += torque.z * dt * 0.08;
 
   if (coupledTo !== side && isOnOpponentHalf(striker, side) && distance < PIECES.disconnectDistance * 1.1) {
     striker.lostTime += dt;
@@ -1061,23 +1163,42 @@ function applyMagneticCoupling(
   }
 }
 
-function updateStrikerCoupling(state: GameState, side: Side): void {
+function updateStrikerCoupling(
+  state: GameState,
+  side: Side,
+  settings: GameSettings,
+  dt: number,
+): void {
   const striker = state.strikers[side];
   const ownSteerer = state.steerers[side];
   const ownDistance = length(ownSteerer.x - striker.pos.x, ownSteerer.z - striker.pos.z);
+  const reachScale = magneticReachScale(settings);
 
   if (striker.coupledTo) {
     const coupledSteerer = state.steerers[striker.coupledTo];
     const coupledDistance = length(coupledSteerer.x - striker.pos.x, coupledSteerer.z - striker.pos.z);
-    const disconnectDistance = PIECES.disconnectDistance * (0.55 + steererStrengthScale(coupledSteerer) * 0.45);
+    const strengthRange = 0.24 + steererStrengthScale(coupledSteerer) * 0.76;
+    const disconnectDistance = PIECES.disconnectDistance * strengthRange * reachScale;
+    const strain = (coupledDistance - disconnectDistance) / Math.max(disconnectDistance, 0.001);
 
-    if (coupledDistance > disconnectDistance) {
+    if (strain > 0) {
+      striker.couplingStrain += dt * (0.75 + strain * 2.65) / reachScale;
+    } else {
+      striker.couplingStrain = Math.max(0, striker.couplingStrain - dt * 4.5);
+    }
+
+    if (
+      striker.couplingStrain > COUPLING_STRAIN_LIMIT
+      || coupledDistance > disconnectDistance * 1.95
+    ) {
       striker.coupledTo = null;
+      striker.couplingStrain = 0;
     }
   }
 
-  if (striker.coupledTo === null && ownDistance < PIECES.reconnectDistance * (0.35 + steererStrengthScale(ownSteerer) * 0.65)) {
+  if (striker.coupledTo === null && ownDistance < PIECES.reconnectDistance * (0.42 + steererStrengthScale(ownSteerer) * 0.58) * reachScale) {
     striker.coupledTo = side;
+    striker.couplingStrain = 0;
   }
 
   if (striker.coupledTo === null && isOnOpponentHalf(striker, side)) {
@@ -1085,8 +1206,9 @@ function updateStrikerCoupling(state: GameState, side: Side): void {
     const rivalSteerer = state.steerers[rival];
     const rivalDistance = length(rivalSteerer.x - striker.pos.x, rivalSteerer.z - striker.pos.z);
 
-    if (rivalDistance < PIECES.disconnectDistance * 0.92 * (0.35 + steererStrengthScale(rivalSteerer) * 0.65)) {
+    if (rivalDistance < PIECES.disconnectDistance * 0.92 * (0.42 + steererStrengthScale(rivalSteerer) * 0.58) * reachScale) {
       striker.coupledTo = rival;
+      striker.couplingStrain = 0;
     }
   }
 }
@@ -1216,6 +1338,8 @@ function updateStrikerTilt(striker: Striker, dt: number): void {
   striker.tiltVelZ += -striker.tiltZ * stiffness * dt;
   striker.tiltVelX *= Math.exp(-damping * dt);
   striker.tiltVelZ *= Math.exp(-damping * dt);
+  striker.tiltVelX = clamp(striker.tiltVelX, -4.2, 4.2);
+  striker.tiltVelZ = clamp(striker.tiltVelZ, -4.2, 4.2);
 
   if (tilt > STRIKER_FALLEN_TILT * 0.58) {
     const speed = length(striker.vel.x, striker.vel.z);
@@ -1228,6 +1352,13 @@ function updateStrikerTilt(striker: Striker, dt: number): void {
   striker.yawVel *= Math.exp(-2.6 * dt);
   striker.tiltX += striker.tiltVelX * dt;
   striker.tiltZ += striker.tiltVelZ * dt;
+
+  if (coupled && striker.y <= 0.001 && striker.sink <= 0.001 && strikerTiltAmount(striker) < 0.025) {
+    striker.tiltX *= Math.exp(-18 * dt);
+    striker.tiltZ *= Math.exp(-18 * dt);
+    striker.tiltVelX *= Math.exp(-18 * dt);
+    striker.tiltVelZ *= Math.exp(-18 * dt);
+  }
 
   const nextTilt = strikerTiltAmount(striker);
   if (nextTilt > STRIKER_TILT_MAX) {
@@ -1254,7 +1385,7 @@ function applyStrikerImpactTilt(striker: Striker, normalX: number, normalZ: numb
 }
 
 function kickBallVertical(ball: Body, impactSpeed: number, rampStrength: number): void {
-  if (impactSpeed < 1.05 || rampStrength <= 0) {
+  if (impactSpeed < 1.05 || rampStrength <= 0 || ball.y > PIECES.ballRadius * 1.25) {
     return;
   }
 
@@ -1281,6 +1412,12 @@ function isBallBiscuitCollisionActive(ball: Body, biscuit: Biscuit): boolean {
   const biscuitCenterHeight = biscuitCenterY(biscuit);
   const verticalReach = ball.radius + biscuitSupportHeight(biscuit);
   return Math.abs(ballCenterY - biscuitCenterHeight) <= verticalReach;
+}
+
+function isBallStrikerCollisionActive(ball: Body, striker: Striker): boolean {
+  const fallenBlend = clamp(strikerTiltAmount(striker) / STRIKER_FALLEN_TILT, 0, 1);
+  const contactTop = strikerBaseY(striker) + 0.18 + fallenBlend * 0.22;
+  return ball.y <= contactTop + PIECES.ballRadius * 0.2;
 }
 
 function nearestFlatBiscuitTilt(angle: number): number {
@@ -1387,6 +1524,10 @@ function launchBiscuit(
 function resolvePieceCollisions(state: GameState): void {
   for (const side of SIDES) {
     const striker = state.strikers[side];
+    if (!isBallStrikerCollisionActive(state.ball, striker)) {
+      continue;
+    }
+
     const dx = striker.pos.x - state.ball.pos.x;
     const dz = striker.pos.z - state.ball.pos.z;
     const distance = length(dx, dz) || 0.0001;

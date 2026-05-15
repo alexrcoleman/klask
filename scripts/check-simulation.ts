@@ -139,6 +139,25 @@ assert(
   'Lowering the controller magnet did not meaningfully weaken lateral control.',
 );
 
+const highPullJumpState = createInitialState();
+setPlayerSteerer(highPullJumpState, 0.86, highPullJumpState.strikers.player.pos.z);
+
+for (let frame = 0; frame < 28; frame += 1) {
+  stepSimulation(highPullJumpState, PHYSICS.fixedTimeStep, {
+    ...DEFAULT_SETTINGS,
+    magneticCoupling: 220,
+  });
+}
+
+assert(
+  highPullJumpState.strikers.player.coupledTo === 'player',
+  'High magnet pull still disconnected after a fast controller jump.',
+);
+assert(
+  highPullJumpState.strikers.player.pos.x > 0.18,
+  'High magnet pull did not recover toward the jumped controller.',
+);
+
 const controllerStabilityState = createInitialState();
 let maxControllerLift = 0;
 let maxControllerAcceleration = 0;
@@ -394,6 +413,29 @@ assert(
   'A hard ball impact did not add angular impulse to the striker.',
 );
 
+const airborneBallSettleState = createInitialState();
+tryServeFromPointer(airborneBallSettleState, airborneBallSettleState.ball.pos.x, airborneBallSettleState.ball.pos.z);
+airborneBallSettleState.ball.pos = { x: 0, z: 0 };
+airborneBallSettleState.ball.vel = { x: 1.8, z: 0 };
+airborneBallSettleState.ball.y = 0.25;
+airborneBallSettleState.ball.yVel = 0.32;
+airborneBallSettleState.strikers.player.pos = {
+  x: airborneBallSettleState.ball.radius + airborneBallSettleState.strikers.player.radius - 0.02,
+  z: 0,
+};
+airborneBallSettleState.strikers.player.vel = { x: 0, z: 0 };
+airborneBallSettleState.strikers.player.tiltX = 0.9;
+airborneBallSettleState.steerers.player = { ...airborneBallSettleState.strikers.player.pos };
+
+let maxAirborneBallY = airborneBallSettleState.ball.y;
+for (let frame = 0; frame < 300; frame += 1) {
+  stepSimulation(airborneBallSettleState, PHYSICS.fixedTimeStep, DEFAULT_SETTINGS);
+  maxAirborneBallY = Math.max(maxAirborneBallY, airborneBallSettleState.ball.y);
+}
+
+assert(maxAirborneBallY <= 0.43, 'An airborne ball escaped the vertical bounds.');
+assert(airborneBallSettleState.ball.y < 0.025, 'An airborne ball did not settle back onto the board.');
+
 const ballBiscuitCollisionState = createInitialState();
 tryServeFromPointer(ballBiscuitCollisionState, ballBiscuitCollisionState.ball.pos.x, ballBiscuitCollisionState.ball.pos.z);
 ballBiscuitCollisionState.ball.pos = { x: -0.16, z: 0 };
@@ -521,6 +563,29 @@ assert(
 );
 assert(passiveBiscuit.lift === 0 && passiveBiscuit.liftVel === 0, 'A distant striker magnet bounced a biscuit vertically.');
 
+const highPullTiltState = createInitialState();
+let maxHighPullTilt = 0;
+
+for (let frame = 0; frame < 480; frame += 1) {
+  const t = frame * PHYSICS.fixedTimeStep;
+  setPlayerSteerer(
+    highPullTiltState,
+    0.72 * Math.sin(t * 5.8),
+    1.1 + 0.18 * Math.cos(t * 4.4),
+  );
+  stepSimulation(highPullTiltState, PHYSICS.fixedTimeStep, {
+    ...DEFAULT_SETTINGS,
+    magneticCoupling: 220,
+  });
+  maxHighPullTilt = Math.max(
+    maxHighPullTilt,
+    Math.hypot(highPullTiltState.strikers.player.tiltX, highPullTiltState.strikers.player.tiltZ),
+  );
+}
+
+assert(maxHighPullTilt < 0.72, 'High magnet pull caused runaway striker tilt.');
+assert(highPullTiltState.strikers.player.y < 0.02, 'High magnet pull lifted the striker away from the board.');
+
 const aiServeState = createInitialState();
 aiServeState.servingSide = 'opponent';
 aiServeState.roundActive = false;
@@ -556,6 +621,33 @@ for (let frame = 0; frame < 360; frame += 1) {
 assert(
   aiStrikeState.ball.pos.z > aiStrikeStartZ + 0.16 || aiStrikeState.ball.vel.z > 0.28,
   'AI did not attempt to drive a reachable ball toward the player goal.',
+);
+
+const aiAvoidSecondBiscuitState = createInitialState();
+tryServeFromPointer(aiAvoidSecondBiscuitState, aiAvoidSecondBiscuitState.ball.pos.x, aiAvoidSecondBiscuitState.ball.pos.z);
+aiAvoidSecondBiscuitState.ball.pos = { x: 0, z: -0.52 };
+aiAvoidSecondBiscuitState.ball.vel = { x: 0, z: 0 };
+aiAvoidSecondBiscuitState.strikers.opponent.pos = { x: 0, z: -0.82 };
+aiAvoidSecondBiscuitState.strikers.opponent.vel = { x: 0, z: 0 };
+aiAvoidSecondBiscuitState.steerers.opponent = { ...aiAvoidSecondBiscuitState.strikers.opponent.pos };
+
+aiAvoidSecondBiscuitState.biscuits[0]!.attachedTo = 'opponent';
+aiAvoidSecondBiscuitState.biscuits[0]!.pos = {
+  x: aiAvoidSecondBiscuitState.strikers.opponent.radius + aiAvoidSecondBiscuitState.biscuits[0]!.radius - 0.004,
+  z: aiAvoidSecondBiscuitState.strikers.opponent.pos.z,
+};
+aiAvoidSecondBiscuitState.biscuits[0]!.vel = { x: 0, z: 0 };
+aiAvoidSecondBiscuitState.biscuits[1]!.attachedTo = null;
+aiAvoidSecondBiscuitState.biscuits[1]!.pos = { x: 0.04, z: -0.54 };
+aiAvoidSecondBiscuitState.biscuits[1]!.vel = { x: 0, z: 0 };
+
+for (let frame = 0; frame < 300; frame += 1) {
+  stepSimulation(aiAvoidSecondBiscuitState, PHYSICS.fixedTimeStep, DEFAULT_SETTINGS);
+}
+
+assert(
+  aiAvoidSecondBiscuitState.biscuits.filter((biscuit) => biscuit.attachedTo === 'opponent').length < 2,
+  'AI carrying one biscuit still collected a dangerous second biscuit.',
 );
 
 const directGoalState = createInitialState();
