@@ -1,6 +1,6 @@
 # Klask Lab
 
-A TypeScript, React Router, Vite, and Three.js recreation of KLASK in the browser. The current build is a single-player/simulation-first prototype with a mouse-driven under-board controller magnet, magnetic striker coupling, an AI opponent, biscuits, goal wells, scoring overlays, and a renderer that keeps React separate from the high-frequency simulation loop.
+A TypeScript, React, Vite, and Three.js recreation of KLASK in the browser. The current build is a single-page, simulation-first prototype with a mouse-driven under-board controller magnet, magnetic striker coupling, an AI opponent, biscuits, goal wells, scoring overlays, and a renderer that keeps React separate from the high-frequency simulation loop.
 
 ## Setup
 
@@ -31,9 +31,19 @@ npm run build
 
 `check:sim` is the most important safety net for game behavior. It covers serving, AI play, goals, scoring aftermath, magnetic coupling, biscuit attachment, ball-biscuit collisions, flipped biscuits, and several prior bug regressions.
 
+## GitHub Pages
+
+The public GitHub Pages build is a static single-page app hosted at `/klask/`.
+
+```sh
+npm run build:pages
+```
+
+The `build:pages` script compiles with Vite's base path set to `/klask/`, so bundled assets resolve correctly from `https://alexrcoleman.github.io/klask/`. The `.github/workflows/pages.yml` workflow runs that script and publishes `dist` when `main` is pushed.
+
 ## Project Shape
 
-- `src/router.tsx` defines the React Router route tree.
+- `src/main.tsx` renders the single-page app entry.
 - `src/routes/GameRoute.tsx` owns HUD state, settings sliders, camera controls, and score overlays.
 - `src/components/KlaskScene.tsx` owns the imperative Three.js scene, pointer projection, cameras, visual meshes, and the fixed-timestep animation loop.
 - `src/game/constants.ts` keeps board dimensions, piece sizes, default settings, and shared magnetic geometry.

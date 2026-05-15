@@ -2,21 +2,22 @@
 
 Klask Lab is split into three layers:
 
-- React route/UI state in `src/routes`.
+- React page/HUD state in `src/routes`.
 - Imperative Three.js rendering and input projection in `src/components/KlaskScene.tsx`.
 - A dependency-free deterministic simulation in `src/game/simulation.ts`.
 
-The current app intentionally avoids putting the simulation in React state. React receives periodic snapshots for the HUD while the scene loop owns high-frequency stepping and mesh synchronization.
+The current app is a static single-page Vite build for easy GitHub Pages hosting. It intentionally avoids putting the simulation in React state. React receives periodic snapshots for the HUD while the scene loop owns high-frequency stepping and mesh synchronization.
 
 ## Runtime Flow
 
-1. `GameRoute` renders the HUD and `KlaskScene`.
-2. `KlaskScene` creates a `GameState` with `createInitialState()`.
-3. Pointer input is projected from screen space onto the board plane.
-4. The projected pointer updates the player under-board controller magnet through `setPlayerSteerer()`.
-5. The animation loop advances `stepSimulation()` at `PHYSICS.fixedTimeStep` using an accumulator.
-6. `syncMeshes()` copies simulation state onto Three.js meshes.
-7. `getSnapshot()` is sent back to React roughly every 120 ms for score, status, and overlay UI.
+1. `src/main.tsx` renders `GameRoute` directly as the single static page.
+2. `GameRoute` renders the HUD and `KlaskScene`.
+3. `KlaskScene` creates a `GameState` with `createInitialState()`.
+4. Pointer input is projected from screen space onto the board plane.
+5. The projected pointer updates the player under-board controller magnet through `setPlayerSteerer()`.
+6. The animation loop advances `stepSimulation()` at `PHYSICS.fixedTimeStep` using an accumulator.
+7. `syncMeshes()` copies simulation state onto Three.js meshes.
+8. `getSnapshot()` is sent back to React roughly every 120 ms for score, status, and overlay UI.
 
 This gives the renderer smooth motion without forcing React to re-render on every physics tick.
 

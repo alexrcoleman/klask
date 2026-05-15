@@ -1,7 +1,6 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { RouterProvider } from 'react-router/dom';
-import { router } from './router';
+import GameRoute from './routes/GameRoute';
 import './styles.css';
 
 const root = document.getElementById('root');
@@ -12,6 +11,6 @@ if (!root) {
 
 createRoot(root).render(
   <React.StrictMode>
-    <RouterProvider router={router} />
+    <GameRoute />
   </React.StrictMode>,
 );
