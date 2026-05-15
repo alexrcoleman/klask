@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
-    "build:pages": "tsc -b && vite build --base=/klask/ && node scripts/copy-pages-404.mjs",
+    "build": "tsc -b && vite build && vite build --ssr src/entry-server.tsx --outDir dist-ssr && node scripts/prerender-shell.mjs",
+    "build:pages": "tsc -b && vite build --base=/klask/ && vite build --ssr src/entry-server.tsx --outDir dist-ssr && node scripts/prerender-shell.mjs && node scripts/copy-pages-404.mjs",
     "preview": "vite preview",
     "check:sim": "tsx scripts/check-simulation.ts",
     "check:types": "tsc -b",

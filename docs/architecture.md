@@ -6,23 +6,30 @@ Klask Lab is split into three layers:
 - Imperative Three.js rendering and input projection in `src/components/KlaskScene.tsx`.
 - A dependency-free deterministic simulation in `src/game/simulation.ts`.
 
-The current app is a static Vite build for easy GitHub Pages hosting. React Router stays in place for future pages, with `import.meta.env.BASE_URL` as the router basename so local dev uses `/` and GitHub Pages uses `/klask`. The app intentionally avoids putting the simulation in React state. React receives periodic snapshots for the HUD while the scene loop owns high-frequency stepping and mesh synchronization.
+The current app is a static Vite build for easy GitHub Pages hosting. React Router stays in place for future pages, with `import.meta.env.BASE_URL` as the router basename so local dev uses `/` and GitHub Pages uses `/klask`. The app prerenders a lightweight React shell into the initial HTML, then hydrates that shell into the playable Three.js app. It intentionally avoids putting the simulation in React state. React receives periodic snapshots for the HUD while the scene loop owns high-frequency stepping and mesh synchronization.
 
 ## Runtime Flow
 
-1. `src/main.tsx` renders the React Router provider.
-2. `src/router.tsx` defines the current index route and applies the Vite base path as the router basename.
-3. `GameRoute` renders the HUD and `KlaskScene`.
-4. `KlaskScene` creates a `GameState` with `createInitialState()`.
-5. Pointer input is projected from screen space onto the board plane.
-6. The projected pointer updates the player under-board controller magnet through `setPlayerSteerer()`.
-7. The animation loop advances `stepSimulation()` at `PHYSICS.fixedTimeStep` using an accumulator.
-8. `syncMeshes()` copies simulation state onto Three.js meshes.
-9. `getSnapshot()` is sent back to React roughly every 120 ms for score, status, and overlay UI.
+1. `src/entry-server.tsx` renders the current route into a static HTML shell.
+2. Vite dev injects that shell through `devPrerenderShellPlugin()`; production builds inject it with `scripts/prerender-shell.mjs`.
+3. `src/main.tsx` hydrates the shell when it finds `.appShell`, or does a normal client render when no shell is present.
+4. `src/main.tsx` renders the React Router provider.
+5. `src/router.tsx` defines the current index route and applies the Vite base path as the router basename.
+6. `GameRoute` renders the HUD and `KlaskScene`.
+7. `KlaskScene` creates a `GameState` with `createInitialState()`.
+8. Pointer input is projected from screen space onto the board plane.
+9. The projected pointer updates the player under-board controller magnet through `setPlayerSteerer()`.
+10. The animation loop advances `stepSimulation()` at `PHYSICS.fixedTimeStep` using an accumulator.
+11. `syncMeshes()` copies simulation state onto Three.js meshes.
+12. `getSnapshot()` is sent back to React roughly every 120 ms for score, status, and overlay UI.
 
-For GitHub Pages, `npm run build:pages` uses Vite's `/klask/` base and copies `dist/index.html` to `dist/404.html`. The 404 fallback lets direct navigation to future client routes load the app instead of showing GitHub's default 404 page.
+For GitHub Pages, `npm run build:pages` uses Vite's `/klask/` base, builds a small SSR bundle, injects the prerendered shell, and copies `dist/index.html` to `dist/404.html`. The 404 fallback lets direct navigation to future client routes load the app instead of showing GitHub's default 404 page.
 
 This gives the renderer smooth motion without forcing React to re-render on every physics tick.
+
+## Static Shell
+
+The shell intentionally renders the React/HUD frame but not the WebGL canvas. `KlaskScene` server-renders only an empty `.sceneHost`; after hydration, its effect creates the Three.js renderer and starts the simulation loop. CSS is linked from `index.html` instead of imported only by the client entry so the no-JavaScript shell is still styled.
 
 ## State Model
 

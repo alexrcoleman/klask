@@ -43,9 +43,12 @@ The `build:pages` script compiles with Vite's base path set to `/klask/`, so bun
 
 React Router is configured with `import.meta.env.BASE_URL` as its basename. Local dev uses `/`; the Pages build uses `/klask`.
 
+The HTML includes a prerendered React shell for the current route, then the browser hydrates it into the playable app. GitHub Pages stays static, but no-JavaScript visitors should see the styled HUD/table shell instead of an empty root.
+
 ## Project Shape
 
 - `src/router.tsx` defines the React Router route tree and Pages-aware basename.
+- `src/entry-server.tsx` renders the static shell used by dev HTML transforms and production prerendering.
 - `src/routes/GameRoute.tsx` owns HUD state, settings sliders, camera controls, and score overlays.
 - `src/components/KlaskScene.tsx` owns the imperative Three.js scene, pointer projection, cameras, visual meshes, and the fixed-timestep animation loop.
 - `src/game/constants.ts` keeps board dimensions, piece sizes, default settings, and shared magnetic geometry.
