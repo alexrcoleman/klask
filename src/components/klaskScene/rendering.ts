@@ -23,6 +23,7 @@ export interface BallRollState {
 export interface CameraOrbit {
   pitch: number;
   yaw: number;
+  zoom: number;
 }
 
 export interface ChargePair {
@@ -296,7 +297,7 @@ export function updateOrthographicFrustum(
 export function positionCamera(
   camera: SceneCamera,
   preset: CameraPreset,
-  orbit: CameraOrbit = { pitch: 0, yaw: 0 },
+  orbit: CameraOrbit = { pitch: 0, yaw: 0, zoom: 1 },
   viewport: ViewportSize = { height: 1, width: 1 },
 ): void {
   if (preset === 'orthographic') {
@@ -304,6 +305,8 @@ export function positionCamera(
     const targetX = Math.max(0, 0.7 - aspect) * 0.22;
     camera.position.set(targetX, 8, 0);
     camera.up.set(Math.sin(orbit.yaw), 0, -Math.cos(orbit.yaw));
+    camera.zoom = orbit.zoom;
+    camera.updateProjectionMatrix();
     camera.lookAt(targetX, FIELD_Y, 0);
     return;
   }
@@ -330,7 +333,7 @@ export function positionCamera(
 
   spherical.theta += orbit.yaw;
   spherical.phi = Math.max(minPhi, Math.min(1.36, spherical.phi + orbit.pitch));
-  spherical.radius *= narrowFitScale;
+  spherical.radius *= narrowFitScale / orbit.zoom;
   camera.position.setFromSpherical(spherical);
   camera.lookAt(targetX, 0, 0);
 }
