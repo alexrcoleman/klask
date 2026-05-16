@@ -53,6 +53,10 @@ const BODY_MAX_UPWARD_SPEED = 1.8;
 const BODY_MAX_DOWNWARD_SPEED = 2.8;
 const AI_SECOND_BISCUIT_DANGER_RADIUS = 0.72;
 const AI_CONTROLLER_LEASH = 0.34;
+const AI_CORNER_TRAP_SECONDS = 15;
+const AI_CORNER_RECOVERY_START_SECONDS = 0.45;
+const CORNER_TRAP_EDGE_MARGIN = 0.3;
+const CORNER_TRAP_END_MARGIN = 0.38;
 
 interface GoalWellOptions {
   captureRadius: number;
@@ -97,6 +101,12 @@ interface RoundStepOptions {
 
 export type PointReason = 'Goal' | 'KLASK' | 'Biscuits' | 'Lost control';
 type ScoreEventType = 'point' | 'match';
+
+interface CornerTrapState {
+  elapsed: number;
+  side: Side;
+  xSign: -1 | 1;
+}
 
 export interface Body {
   pos: Vector2;
@@ -172,6 +182,7 @@ export interface GameState {
   strikers: Record<Side, Striker>;
   steerers: Record<Side, Steerer>;
   biscuits: Biscuit[];
+  cornerTrap: CornerTrapState | null;
 }
 
 export interface GameSnapshot {
@@ -213,6 +224,10 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
+function signOne(value: number): -1 | 1 {
+  return value < 0 ? -1 : 1;
+}
+
 function makeSteerer(x: number, z: number, source?: Steerer): Steerer {
   return {
     x,
@@ -242,6 +257,16 @@ function steererStrengthScale(steerer: Steerer): number {
 
 function length(x: number, z: number): number {
   return Math.hypot(x, z);
+}
+
+function normalize2(value: Vector2): Vector2 {
+  const magnitude = length(value.x, value.z);
+
+  if (magnitude <= 0.000001) {
+    return vec(0, 1);
+  }
+
+  return vec(value.x / magnitude, value.z / magnitude);
 }
 
 function length3(value: Vector3): number {
@@ -607,6 +632,7 @@ export function createInitialState(): GameState {
       opponent: makeSteerer(0, -1.18),
     },
     biscuits: BISCUIT_HOME.map((_, index) => makeBiscuit(index)),
+    cornerTrap: null,
   };
 
   resetRound(state, 'player', 'Player serve');
@@ -631,6 +657,7 @@ export function resetRound(
   state.roundActive = false;
   state.scoring = null;
   state.roundIndex += 1;
+  state.cornerTrap = null;
   state.ball = makeBody(0, 0, PIECES.ballRadius, PHYSICS.ballMass);
   state.ball.pos = cornerForServe(servingSide, state.roundIndex);
   state.ball.vel.x = 0;
@@ -747,6 +774,76 @@ function updateScoringInterstitial(state: GameState, dt: number): void {
   );
 }
 
+function isAiControlledSide(settings: GameSettings, side: Side): boolean {
+  return side === 'opponent' || settings.aiControlsPlayer;
+}
+
+function cornerTrapForBall(ball: Body): Omit<CornerTrapState, 'elapsed'> | null {
+  if (ball.sink > 0.08) {
+    return null;
+  }
+
+  const side: Side = ball.pos.z >= 0 ? 'player' : 'opponent';
+  const sideSign = side === 'player' ? 1 : -1;
+  const xEdgeDistance = BOARD.width / 2 - ball.radius - Math.abs(ball.pos.x);
+  const zEndDistance = BOARD.length / 2 - ball.radius - sideSign * ball.pos.z;
+
+  if (xEdgeDistance > CORNER_TRAP_EDGE_MARGIN || zEndDistance > CORNER_TRAP_END_MARGIN) {
+    return null;
+  }
+
+  return {
+    side,
+    xSign: signOne(ball.pos.x),
+  };
+}
+
+function moveBallOnlyToServe(state: GameState, servingSide: Side, message: string): void {
+  state.servingSide = servingSide;
+  state.roundActive = false;
+  state.scoring = null;
+  state.cornerTrap = null;
+  state.roundIndex += 1;
+  state.ball = makeBody(0, 0, PIECES.ballRadius, PHYSICS.ballMass);
+  state.ball.pos = cornerForServe(servingSide, state.roundIndex);
+  state.message = message;
+  state.messageTimer = 3.2;
+}
+
+function updateCornerTrapState(
+  state: GameState,
+  settings: GameSettings,
+  dt: number,
+): boolean {
+  const trap = cornerTrapForBall(state.ball);
+
+  if (!trap || !isAiControlledSide(settings, trap.side)) {
+    state.cornerTrap = null;
+    return false;
+  }
+
+  const previous = state.cornerTrap;
+  const elapsed = previous
+    && previous.side === trap.side
+    && previous.xSign === trap.xSign
+    ? previous.elapsed + dt
+    : dt;
+
+  state.cornerTrap = { ...trap, elapsed };
+
+  if (elapsed < AI_CORNER_TRAP_SECONDS) {
+    return false;
+  }
+
+  const nextServer = opponentOf(trap.side);
+  moveBallOnlyToServe(
+    state,
+    nextServer,
+    `${trap.side === 'player' ? 'Player' : 'Opponent'} forfeits stuck ball`,
+  );
+  return true;
+}
+
 export function stepSimulation(
   state: GameState,
   dt: number,
@@ -808,6 +905,10 @@ function advanceActiveRoundPhysics(
     if (state.messageTimer === 0 && !state.winner) {
       state.message = '';
     }
+  }
+
+  if (options.allowScoring && updateCornerTrapState(state, settings, dt)) {
+    return null;
   }
 
   if (options.allowAi && settings.aiControlsPlayer) {
@@ -957,6 +1058,54 @@ function shotSteererTarget(
   );
 }
 
+function aiCornerRecoveryTarget(
+  state: GameState,
+  side: Side,
+): { speed: number; target: Vector2 } | null {
+  const trap = state.cornerTrap;
+
+  if (!trap || trap.side !== side || trap.elapsed < AI_CORNER_RECOVERY_START_SECONDS) {
+    return null;
+  }
+
+  const sideSign = side === 'player' ? 1 : -1;
+  const ball = state.ball;
+  const striker = state.strikers[side];
+  const escape = normalize2(vec(-trap.xSign * 0.54, -sideSign));
+  const lateral = vec(-escape.z, escape.x);
+  const strikerToBall = vec(striker.pos.x - ball.pos.x, striker.pos.z - ball.pos.z);
+  const alongEscape = strikerToBall.x * escape.x + strikerToBall.z * escape.z;
+  const lateralOffset = Math.abs(strikerToBall.x * lateral.x + strikerToBall.z * lateral.z);
+  const readyToNudge = alongEscape < -0.08 && lateralOffset < 0.18;
+  const escapeSpeed = ball.vel.x * escape.x + ball.vel.z * escape.z;
+  const phase = trap.elapsed % 1.55;
+  let offset = -0.27;
+  let speed = 5.6;
+
+  if (escapeSpeed > 0.045) {
+    offset = 0.92;
+    speed = 6.4;
+  } else if (readyToNudge && phase >= 0.5 && phase < 0.86) {
+    offset = 0.36;
+    speed = 8.2;
+  } else if (phase >= 0.86) {
+    offset = 0.72;
+    speed = 7.4;
+  }
+
+  const lateralWiggle = phase >= 1.12
+    ? Math.sin(trap.elapsed * 8.2) * 0.08
+    : 0;
+
+  return {
+    speed,
+    target: vec(
+      ball.pos.x + escape.x * offset + lateral.x * lateralWiggle,
+      ball.pos.z + escape.z * offset + lateral.z * lateralWiggle,
+    ),
+  };
+}
+
 function isLooseGroundedBiscuit(biscuit: Biscuit): boolean {
   return biscuit.attachedTo === null && !isBiscuitAirborne(biscuit);
 }
@@ -1084,13 +1233,17 @@ function updateAiSteerer(
     || hasLooseBiscuitNear(state, striker.pos, 0.28)
   );
   const stalledReachableBall = canReachBall && ballSpeed < 0.22;
+  const cornerRecovery = aiCornerRecoveryTarget(state, side);
   let target = vec(
     clamp(ball.pos.x * 0.82, -BOARD.width / 2 + 0.32, BOARD.width / 2 - 0.32),
     clamp(ball.pos.z + sideSign * 0.2, safetyMinZ, safetyMaxZ),
   );
   let speed = 2.8;
 
-  if (immediateSecondBiscuitThreat) {
+  if (cornerRecovery) {
+    target = cornerRecovery.target;
+    speed = cornerRecovery.speed;
+  } else if (immediateSecondBiscuitThreat) {
     const awayX = striker.pos.x - immediateSecondBiscuitThreat.pos.x;
     const awayZ = striker.pos.z - immediateSecondBiscuitThreat.pos.z;
     const awayDistance = length(awayX, awayZ) || 1;

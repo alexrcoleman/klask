@@ -772,6 +772,73 @@ assert(
   'AI stalled instead of eventually striking a reachable ball around a biscuit.',
 );
 
+const aiCornerRecoveryState = createInitialState();
+aiCornerRecoveryState.roundActive = true;
+aiCornerRecoveryState.message = '';
+aiCornerRecoveryState.ball.pos = {
+  x: BOARD.width / 2 - PIECES.ballRadius - 0.04,
+  z: -BOARD.length / 2 + PIECES.ballRadius + 0.05,
+};
+aiCornerRecoveryState.ball.vel = { x: 0, z: 0 };
+aiCornerRecoveryState.strikers.opponent.pos = { x: 0.96, z: -1.32 };
+aiCornerRecoveryState.strikers.opponent.vel = { x: 0, z: 0 };
+aiCornerRecoveryState.steerers.opponent = { ...aiCornerRecoveryState.strikers.opponent.pos };
+
+let aiCornerRecoveryEscaped = false;
+
+for (let frame = 0; frame < 900 && !aiCornerRecoveryEscaped; frame += 1) {
+  stepSimulation(aiCornerRecoveryState, PHYSICS.fixedTimeStep, DEFAULT_SETTINGS);
+
+  const xEdgeDistance = BOARD.width / 2 - PIECES.ballRadius - Math.abs(aiCornerRecoveryState.ball.pos.x);
+  const zEndDistance = BOARD.length / 2 - PIECES.ballRadius + aiCornerRecoveryState.ball.pos.z;
+  aiCornerRecoveryEscaped = xEdgeDistance > 0.18 || zEndDistance > 0.28;
+}
+
+assert(aiCornerRecoveryEscaped, 'AI did not nudge a trapped corner ball back out of the corner.');
+assert(
+  aiCornerRecoveryState.score.player === 0 && aiCornerRecoveryState.score.opponent === 0,
+  'AI corner recovery incorrectly awarded a point.',
+);
+
+const aiCornerForfeitState = createInitialState();
+aiCornerForfeitState.roundActive = true;
+aiCornerForfeitState.message = '';
+aiCornerForfeitState.ball.pos = {
+  x: -BOARD.width / 2 + PIECES.ballRadius + 0.04,
+  z: -BOARD.length / 2 + PIECES.ballRadius + 0.05,
+};
+aiCornerForfeitState.ball.vel = { x: 0, z: 0 };
+
+const forfeitBiscuitPositions = aiCornerForfeitState.biscuits.map((biscuit) => ({
+  attachedTo: biscuit.attachedTo,
+  x: biscuit.pos.x,
+  z: biscuit.pos.z,
+}));
+
+for (let frame = 0; frame < 16 * 120; frame += 1) {
+  stepSimulation(aiCornerForfeitState, PHYSICS.fixedTimeStep, {
+    ...DEFAULT_SETTINGS,
+    aiSpeed: 0,
+  });
+}
+
+assert(!aiCornerForfeitState.roundActive, 'AI stuck-ball forfeit did not stop the active round.');
+assert(aiCornerForfeitState.servingSide === 'player', 'AI stuck-ball forfeit did not give the other player serve.');
+assert(
+  aiCornerForfeitState.score.player === 0 && aiCornerForfeitState.score.opponent === 0,
+  'AI stuck-ball forfeit incorrectly changed the score.',
+);
+assert(aiCornerForfeitState.ball.pos.z > 0, 'AI stuck-ball forfeit did not move only the ball to the next server.');
+assert(
+  aiCornerForfeitState.biscuits.every((biscuit, index) => {
+    const previous = forfeitBiscuitPositions[index]!;
+    return biscuit.attachedTo === previous.attachedTo
+      && Math.abs(biscuit.pos.x - previous.x) < 0.0001
+      && Math.abs(biscuit.pos.z - previous.z) < 0.0001;
+  }),
+  'AI stuck-ball forfeit moved or removed biscuits.',
+);
+
 const aiAvoidSecondBiscuitState = createInitialState();
 tryServeFromPointer(aiAvoidSecondBiscuitState, aiAvoidSecondBiscuitState.ball.pos.x, aiAvoidSecondBiscuitState.ball.pos.z);
 aiAvoidSecondBiscuitState.ball.pos = { x: 0, z: -0.52 };
