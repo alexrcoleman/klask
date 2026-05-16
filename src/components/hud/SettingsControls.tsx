@@ -1,4 +1,5 @@
-import { memo, type ChangeEvent } from 'react';
+import { memo, useEffect, useState, type ChangeEvent } from 'react';
+import { BUILD_CREATED_AT } from '../../buildInfo';
 import {
   SETTING_RANGES,
   type GameSettings,
@@ -32,6 +33,49 @@ const SettingSlider = memo(function SettingSlider({
         onChange={onChange}
       />
     </label>
+  );
+});
+
+function formatBuildCreatedAt(value: string): string {
+  if (!value) {
+    return 'dev server';
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    month: 'short',
+    second: '2-digit',
+    timeZoneName: 'short',
+    year: 'numeric',
+  }).format(date);
+}
+
+const BuildInfo = memo(function BuildInfo() {
+  const [buildCreatedAt, setBuildCreatedAt] = useState('');
+
+  useEffect(() => {
+    setBuildCreatedAt(BUILD_CREATED_AT);
+  }, []);
+
+  const label = formatBuildCreatedAt(buildCreatedAt);
+
+  return (
+    <div className="buildInfo">
+      <span>Build</span>
+      {buildCreatedAt ? (
+        <time dateTime={buildCreatedAt}>{label}</time>
+      ) : (
+        <strong>{label}</strong>
+      )}
+    </div>
   );
 });
 
@@ -101,6 +145,8 @@ const SettingsControls = memo(function SettingsControls({
         value={settings.aiSpeed}
         onChange={makeSettingHandler('aiSpeed')}
       />
+
+      <BuildInfo />
     </>
   );
 });

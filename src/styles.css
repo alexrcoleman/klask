@@ -211,6 +211,28 @@ button:active {
   accent-color: #efb76c;
 }
 
+.buildInfo {
+  display: grid;
+  gap: 3px;
+  margin-top: auto;
+  padding-top: 4px;
+  color: rgba(247, 239, 227, 0.56);
+  font-size: 0.74rem;
+  line-height: 1.25;
+}
+
+.buildInfo span {
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.buildInfo strong,
+.buildInfo time {
+  color: rgba(247, 239, 227, 0.78);
+  font: inherit;
+  font-weight: 700;
+}
+
 .menuButton,
 .hudBackdrop {
   display: none;
