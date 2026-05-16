@@ -52,6 +52,7 @@ const BODY_MAX_AIR_HEIGHT = 0.42;
 const BODY_MAX_UPWARD_SPEED = 1.8;
 const BODY_MAX_DOWNWARD_SPEED = 2.8;
 const AI_SECOND_BISCUIT_DANGER_RADIUS = 0.72;
+const AI_CONTROLLER_LEASH = 0.34;
 
 interface GoalWellOptions {
   captureRadius: number;
@@ -1040,6 +1041,21 @@ function nudgeAiTargetAwayFromLooseBiscuits(
   return clampSteerer(side, adjusted.x, adjusted.z, state.steerers[side]);
 }
 
+function leashAiTargetToStriker(striker: Striker, target: Vector2): Vector2 {
+  const dx = target.x - striker.pos.x;
+  const dz = target.z - striker.pos.z;
+  const distance = length(dx, dz);
+
+  if (distance <= AI_CONTROLLER_LEASH || distance === 0) {
+    return target;
+  }
+
+  return vec(
+    striker.pos.x + (dx / distance) * AI_CONTROLLER_LEASH,
+    striker.pos.z + (dz / distance) * AI_CONTROLLER_LEASH,
+  );
+}
+
 function updateAiSteerer(
   state: GameState,
   settings: GameSettings,
@@ -1112,6 +1128,13 @@ function updateAiSteerer(
   }
 
   target = nudgeAiTargetAwayFromLooseBiscuits(state, side, target);
+  const leashedTarget = leashAiTargetToStriker(striker, target);
+  target = clampSteerer(
+    side,
+    leashedTarget.x,
+    leashedTarget.z,
+    state.steerers[side],
+  );
 
   moveSteererToward(
     state,

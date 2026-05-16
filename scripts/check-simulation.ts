@@ -740,6 +740,38 @@ assert(
   'AI did not attempt to drive a reachable ball toward the player goal.',
 );
 
+const aiStalledLaneState = createInitialState();
+tryServeFromPointer(aiStalledLaneState, aiStalledLaneState.ball.pos.x, aiStalledLaneState.ball.pos.z);
+aiStalledLaneState.ball.pos = { x: -1.1, z: -0.25 };
+aiStalledLaneState.ball.vel = { x: 0, z: 0 };
+aiStalledLaneState.strikers.opponent.pos = { x: 0.8, z: -1.18 };
+aiStalledLaneState.strikers.opponent.vel = { x: 0, z: 0 };
+aiStalledLaneState.steerers.opponent = { ...aiStalledLaneState.strikers.opponent.pos };
+aiStalledLaneState.biscuits[0]!.attachedTo = null;
+aiStalledLaneState.biscuits[0]!.pos = { x: -1, z: -0.23 };
+aiStalledLaneState.biscuits[0]!.vel = { x: 0, z: 0 };
+aiStalledLaneState.biscuits[1]!.pos = { x: 0, z: 0 };
+aiStalledLaneState.biscuits[1]!.vel = { x: 0, z: 0 };
+aiStalledLaneState.biscuits[2]!.pos = { x: -0.7, z: 0 };
+aiStalledLaneState.biscuits[2]!.vel = { x: 0, z: 0 };
+const aiStalledLaneStartZ = aiStalledLaneState.ball.pos.z;
+let aiStalledLaneMaxSpeed = 0;
+let aiStalledLaneMaxZ = aiStalledLaneState.ball.pos.z;
+
+for (let frame = 0; frame < 720; frame += 1) {
+  stepSimulation(aiStalledLaneState, PHYSICS.fixedTimeStep, DEFAULT_SETTINGS);
+  aiStalledLaneMaxSpeed = Math.max(
+    aiStalledLaneMaxSpeed,
+    Math.hypot(aiStalledLaneState.ball.vel.x, aiStalledLaneState.ball.vel.z),
+  );
+  aiStalledLaneMaxZ = Math.max(aiStalledLaneMaxZ, aiStalledLaneState.ball.pos.z);
+}
+
+assert(
+  aiStalledLaneMaxSpeed > 0.6 && aiStalledLaneMaxZ > aiStalledLaneStartZ + 0.36,
+  'AI stalled instead of eventually striking a reachable ball around a biscuit.',
+);
+
 const aiAvoidSecondBiscuitState = createInitialState();
 tryServeFromPointer(aiAvoidSecondBiscuitState, aiAvoidSecondBiscuitState.ball.pos.x, aiAvoidSecondBiscuitState.ball.pos.z);
 aiAvoidSecondBiscuitState.ball.pos = { x: 0, z: -0.52 };
